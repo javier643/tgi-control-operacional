@@ -1,0 +1,30 @@
+# Stage 1: Build
+FROM mcr.microsoft.com/dotnet/sdk:8.0-alpine AS builder
+WORKDIR /src
+
+# Copy csproj and restore as distinct layers
+COPY ["TgiControl.csproj", "./"]
+RUN dotnet restore "TgiControl.csproj" --no-cache
+
+# Copy source and build
+COPY . .
+RUN dotnet build "TgiControl.csproj" -c Release -o /app/build --no-restore
+
+# Stage 2: Publish
+FROM builder AS publish
+RUN dotnet publish "TgiControl.csproj" -c Release -o /app/publish --no-build
+
+# Stage 3: Runtime
+FROM mcr.microsoft.com/dotnet/aspnet:8.0-alpine AS runtime
+WORKDIR /app
+
+# Install optional dependencies (for SQL Server connectivity)
+RUN apk add --no-cache tzdata ca-certificates
+
+COPY --from=publish /app/publish .
+
+EXPOSE 8080
+HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
+    CMD dotnet TgiControl.dll || exit 1
+
+ENTRYPOINT ["dotnet", "TgiControl.dll"]
